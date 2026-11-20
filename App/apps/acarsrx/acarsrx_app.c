@@ -61,9 +61,9 @@
 /* ---- ACARS frame ---- */
 #define FRAME_MAX       240u
 #define MESSAGE_MAX     226u       /* 240 - fixed 13-byte ACARS header - ETX */
-#define HISTORY         3u
+#define HISTORY         8u
 #define BODY_CHARS      18u
-#define BODY_ROWS       3u
+#define BODY_ROWS       4u
 #define COMPACT_EXTRA   14u
 #define VIEW_COMPACT    1u
 
@@ -136,6 +136,22 @@ static char *puti(char *o,int32_t v){ return g.A->append_i32(o,v); }
 static char *putStat(char *o,uint16_t v){
     if(v>99u){ o=puti(o,99); *o++='+'; return o; }
     return puti(o,v);
+}
+
+/* Frequency as small text, e.g. "131.725". rx_freq() is in units of 10 Hz.
+ * Divisions go through the resident helper, as the wiki requires. */
+static char *putFreq(char *o,uint32_t f){
+    uint64_t r=g.A->uidivmod(f,100000u);      /* low = MHz, high = remainder */
+    o=puti(o,(int32_t)(uint32_t)r);
+    *o++='.';
+    uint32_t rem=(uint32_t)(r>>32);
+    static const uint16_t dv[3]={10000u,1000u,100u};   /* three kHz digits */
+    for(uint8_t n=0;n<3u;n++){
+        char c='0';
+        while(rem>=dv[n]){ rem-=dv[n]; c++; }
+        *o++=c;
+    }
+    return o;
 }
 
 /* ---- ACARS BCS, CCITT polynomial, bytes and bits in transmitted order ---- */
@@ -442,7 +458,7 @@ static void drawBody(char *body){
 
 static void separator(void){
     uint8_t *b=g.A->fb[0];
-    for(unsigned x=0;x<128u;x+=2u){ b[384u+x]|=0x80u; b[385u+x]&=0x7Fu; }
+    for(unsigned x=0;x<128u;x+=2u){ b[512u+x]|=0x80u; b[513u+x]&=0x7Fu; }
 }
 
 static void draw(void){
@@ -481,7 +497,13 @@ static void draw(void){
     }
 
     separator();
-    g.A->draw_frequency(A->rx_freq(),0,4);   /* the main screen's big digits, lines 4-5 */
+    {
+        char *o=putFreq(text,A->rx_freq());
+        o=put(o," MHz  STK ");
+        o=puti(o,(int32_t)A->sys_stack_free_min());
+        *o='\0';
+        A->print_tiny(text,0,41,false,true);
+    }
     if(g.count){
         message_t *m=g.history[g.cur];
         char *o=puti(text,m->rssi); o=put(o,ui+T_DBM);
